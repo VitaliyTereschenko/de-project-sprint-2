@@ -1,17 +1,16 @@
 DROP TABLE IF EXISTS public.shipping_country_rates CASCADE;
 
 CREATE TABLE public.shipping_country_rates(
-   shipping_country_id  		BIGINT,
+   shipping_country_id  		SERIAL,
    shipping_country   			TEXT,
    shipping_country_base_rate   NUMERIC(14,3),
    PRIMARY KEY  (shipping_country_id)
 );
 
-CREATE SEQUENCE shipping_country_id_sequence START 1;
+
 INSERT INTO public.shipping_country_rates
-(shipping_country_id, shipping_country, shipping_country_base_rate)
+(shipping_country, shipping_country_base_rate)
 SELECT  
-	nextval('shipping_country_id_sequence') AS shipping_country_id,
 	t.shipping_country,
 	t.shipping_country_base_rate
 FROM (
@@ -19,11 +18,9 @@ FROM (
     shipping_country_base_rate AS shipping_country_base_rate
     FROM public.shipping s) t;
 
-DROP SEQUENCE shipping_country_id_sequence;
-
 --//////////////////////////////////////////////////////////////////////////////////////////////////////--
 
-DROP TABLE IF EXISTS public.shipping_agreement ;
+DROP TABLE IF EXISTS public.shipping_agreement CASCADE ;
 
 CREATE TABLE public.shipping_agreement (
    agreementid  		BIGINT,
@@ -47,7 +44,7 @@ FROM(SELECT DISTINCT
 
 --//////////////////////////////////////////////////////////////////////////////////////////////////////--
 
-DROP TABLE IF EXISTS public.shipping_transfer;
+DROP TABLE IF EXISTS public.shipping_transfer CASCADE ;
 
 CREATE TABLE public.shipping_transfer (
 	transfer_type_id		SERIAL,
@@ -126,8 +123,9 @@ INSERT INTO public.shipping_status
 (shippingid, status, state, shipping_start_fact_datetime, shipping_end_fact_datetime)
 WITH max_t AS(
 SELECT
-		shippingid, max(state_datetime)
+		shippingid, max(state_datetime) AS state_datetime
 FROM public.shipping
+WHERE state = 'recieved'
 GROUP BY shippingid
 ),
 min_t AS(
@@ -135,15 +133,23 @@ SELECT
 		shippingid, min(state_datetime)
 FROM public.shipping
 GROUP BY shippingid
+),
+main AS(
+SELECT * FROM (
+	SELECT 	*,
+			ROW_NUMBER() OVER (PARTITION BY shippingid ORDER BY state_datetime DESC) row_num
+   	FROM public.shipping) t 
+WHERE row_num = 1
 )
+
 
 SELECT 	s.shippingid AS shippingid,
 		s.status AS status,
 		s.state AS state,
 		min_t.min AS shipping_start_fact_datetime,
-		s.state_datetime AS shipping_end_fact_datetime
-FROM public.shipping s
-RIGHT JOIN max_t ON max_t.shippingid = s.shippingid AND max_t.max = s.state_datetime
+		max_t.state_datetime AS shipping_end_fact_datetime
+FROM main s
+LEFT JOIN max_t ON max_t.shippingid = s.shippingid
 LEFT JOIN min_t ON min_t.shippingid = s.shippingid
 ;
 
